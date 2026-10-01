@@ -174,13 +174,31 @@
         </div>
     </div>
 
-    <script>
-       <!-- 1. Завантаження бібліотек Firebase (CDN) -->
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <!-- 1. Підключення SDK Firebase (CDN) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
-<!-- 2. Ваша конфігурація -->
-<script src="firebase-config.js"></script>
+    <!-- 2. Ваша конфігурація Firebase -->
+    <script src="firebase-config.js"></script>
+
+    <!-- 3. Логіка сторінки -->
+    <script>
+        // Відображення імені поточного користувача
+        const userData = JSON.parse(localStorage.getItem('currentUser'));
+        if (userData && userData.username) {
+            document.getElementById('user-display').innerText = userData.username;
+        }
+
+        // Функція виходу з акаунту
+        async function logout() {
+            if (typeof auth !== 'undefined' && auth.currentUser) {
+                await auth.signOut();
+            }
+            localStorage.removeItem('currentUser');
+            localStorage.removeItem('cars'); // очищаємо локальний кеш авто
+            window.location.href = 'index.html';
+        }
+    </script>
 </body>
 </html>
