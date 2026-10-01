@@ -206,7 +206,166 @@
         localStorage.removeItem('selected_car_id');
 
         const user = { username: 'Гість', role: 'guest', uid: 'guest_local' };
+        localSt<!-- 1. Підключення SDK Firebase (CDN) -->
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+<script>
+    // 2. Ініціалізація Firebase
+    const firebaseConfig = {
+        apiKey: "AIzaSyBF8fvgM_-QaRJQCVDjsO61mYS8w30Svbo",
+        authDomain: "dpsu-calculator-db.firebaseapp.com",
+        projectId: "dpsu-calculator-db",
+        storageBucket: "dpsu-calculator-db.firebasestorage.app",
+        messagingSenderId: "1008100932764",
+        appId: "1:1008100932764:web:c3d22b135d9dcf866f4159",
+        measurementId: "G-8PDNTXSCD2"
+    };
+
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // Перемикач вкладок
+    function switchTab(tab) {
+        document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.form-group').forEach(form => form.classList.remove('active'));
+
+        if (tab === 'login') {
+            document.querySelectorAll('.tab-btn')[0].classList.add('active');
+            document.getElementById('login-form').classList.add('active');
+        } else {
+            document.querySelectorAll('.tab-btn')[1].classList.add('active');
+            document.getElementById('register-form').classList.add('active');
+        }
+    }
+
+    // 3. ФУНКЦІЯ ВХОДУ (ЗАХИЩЕНА ВІД ПЛАГІНІВ ТА АВТОЗАПОВНЕННЯ)
+    async function handleLogin() {
+        // Отримуємо значення виключно через DOM елементи з унікальними назвами змінних
+        const userEmailInput = document.getElementById('login-email');
+        const userPassInput = document.getElementById('login-password');
+
+        if (!userEmailInput || !userPassInput) {
+            alert("Помилка: Не знайдено елементи входу!");
+            return;
+        }
+
+        const inputEmail = String(userEmailInput.value).trim();
+        const inputPassword = String(userPassInput.value).trim();
+
+        if (!inputEmail || !inputPassword) {
+            alert("Будь ласка, введіть Email та пароль!");
+            return;
+        }
+
+        try {
+            // Вхід у Firebase
+            const userCredential = await auth.signInWithEmailAndPassword(inputEmail, inputPassword);
+            const user = userCredential.user;
+
+            let role = 'guest';
+            let username = inputEmail;
+
+            try {
+                const userDoc = await db.collection("users").doc(user.uid).get();
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    role = userData.role || 'guest';
+                    username = userData.fullName || inputEmail;
+                }
+            } catch (e) {
+                console.error("Помилка завантаження профілю:", e);
+            }
+
+            // Очищення локального кешу перед сесією нового акаунта
+            localStorage.removeItem('cars');
+            localStorage.removeItem('calc_saved_records');
+            localStorage.removeItem('selectedCar');
+            localStorage.removeItem('selected_car_id');
+
+            localStorage.setItem('currentUser', JSON.stringify({
+                uid: user.uid,
+                username: username,
+                email: inputEmail,
+                role: role
+            }));
+
+            if (role === 'admin' || role === 'programmer') {
+                alert(`Успішний вхід! Вітаємо, ${username} (Адміністратор)`);
+                window.location.href = 'admin.html';
+            } else {
+                alert(`Успішний вхід! Вітаємо, ${username}`);
+                window.location.href = 'home.html';
+            }
+        } catch (error) {
+            alert("Помилка входу: " + error.message);
+        }
+    }
+
+    // 4. РЕЄСТРАЦІЯ
+    async function handleRegister() {
+        const nameVal = document.getElementById('reg-fullname').value.trim();
+        const emailVal = document.getElementById('reg-email').value.trim();
+        const passVal = document.getElementById('reg-password').value.trim();
+
+        if (!nameVal || !emailVal || !passVal) {
+            alert("Заповніть усі поля реєстрації!");
+            return;
+        }
+
+        if (passVal.length < 6) {
+            alert("Пароль повинен бути не менше 6 символів!");
+            return;
+        }
+
+        try {
+            const userCredential = await auth.createUserWithEmailAndPassword(emailVal, passVal);
+            const user = userCredential.user;
+
+            await db.collection("users").doc(user.uid).set({
+                fullName: nameVal,
+                email: emailVal,
+                role: "guest",
+                createdAt: new Date()
+            });
+
+            localStorage.removeItem('cars');
+            localStorage.removeItem('calc_saved_records');
+
+            localStorage.setItem('currentUser', JSON.stringify({
+                uid: user.uid,
+                username: nameVal,
+                email: emailVal,
+                role: 'guest'
+            }));
+
+            alert("Акаунт успішно створено!");
+            window.location.href = 'home.html';
+        } catch (error) {
+            alert("Помилка реєстрації: " + error.message);
+        }
+    }
+
+    // 5. ВХІД ЯК ГІСТЬ
+    async function loginAsGuest() {
+        if (typeof auth !== 'undefined' && auth.currentUser) {
+            await auth.signOut();
+        }
+
+        localStorage.removeItem('cars');
+        localStorage.removeItem('calc_saved_records');
+        localStorage.removeItem('selectedCar');
+        localStorage.removeItem('selected_car_id');
+
+        const user = { username: 'Гість', role: 'guest', uid: 'guest_local' };
         localStorage.setItem('currentUser', JSON.stringify(user));
+        window.location.href = 'home.html';
+    }
+</script>orage.setItem('currentUser', JSON.stringify(user));
         window.location.href = 'home.html';
     }
 </script>
