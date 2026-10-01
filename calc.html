@@ -153,6 +153,12 @@
     </div>
 </div>
 
+<!-- 1. Підключення SDK Firebase (CDN) - ТІЛЬКИ ПОЧАТОК -->
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+
 <script>
     function cleanEmoji(text) {
         if (!text) return "";
@@ -172,8 +178,13 @@
 
     window.onload = function() {
         syncData();
-        renderCalcArchives();
     };
+
+    if (typeof auth !== 'undefined') {
+        auth.onAuthStateChanged((user) => {
+            renderCalcArchives();
+        });
+    }
 
     window.addEventListener('storage', () => {
         syncData();
@@ -379,7 +390,7 @@
                         }
                     }
                 } else {
-                    indK = 0; // Для траси міський коефіцієнт завжди 0
+                    indK = 0;
                 }
 
                 appendRow(cleanRouteName, item.km || item.dist || 0, "-", 0, indK, isHwy);
@@ -540,14 +551,11 @@
             const w = parseFloat(ins[3].value) || 0;
             const isHighway = hwyBtn ? hwyBtn.classList.contains('active') : false;
             
-            // Якщо Траса — міський коефіцієнт (indK) примусово 0
             const indK = isHighway ? 0 : (parseFloat(ins[4].value) || 0);
-
             const hwyK = isHighway ? (k4 - k5) : 0;
             const finalK = baseSysK + indK + hwyK;
             
             const workWeight = w + gTrailler;
-            
             totalQ += (0.01 * car.hsm * km * (1 + 0.01 * finalK)) + (0.01 * (car.hsz || 0) * workWeight * km);
         });
 
@@ -584,68 +592,65 @@
     }
 
     async function saveCalculationRecord() {
-    const rows = getCurrentRowsData();
-    if (rows.length === 0) return alert("Таблиця розрахунку порожня!");
+        const rows = getCurrentRowsData();
+        if (rows.length === 0) return alert("Таблиця розрахунку порожня!");
 
-    const user = auth.currentUser;
-    if (!user) return alert("Ви не авторизовані!");
+        const carSelect = document.getElementById('carSelect');
+        const carName = carSelect.options[carSelect.selectedIndex]?.text || "ТЗ";
+        let title = prompt("Введіть назву розрахунку:");
+        if (!title) return;
 
-    const carSelect = document.getElementById('carSelect');
-    const carName = carSelect.options[carSelect.selectedIndex]?.text || "ТЗ";
-    let title = prompt("Введіть назву розрахунку:");
-    if (!title) return;
+        const recordData = {
+            id: Date.now(),
+            title: cleanEmoji(title),
+            carName: carName,
+            trailerActive: trailerActive,
+            gTrailler: document.getElementById('g_trailler').value,
+            rows: rows,
+            totalQ: document.getElementById('r_q').innerText,
+            createdAt: new Date().toLocaleString('uk-UA'),
+            date: new Date().toLocaleString('uk-UA')
+        };
 
-    const recordData = {
-        title: cleanEmoji(title),
-        carName: carName,
-        trailerActive: trailerActive,
-        gTrailler: document.getElementById('g_trailler').value,
-        rows: rows,
-        totalQ: document.getElementById('r_q').innerText,
-        createdAt: new Date().toLocaleString('uk-UA')
-    };
+        // 1. Локальне збереження
+        let archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
+        archives.unshift(recordData);
+        localStorage.setItem('calc_saved_records', JSON.stringify(archives));
 
-    try {
-        await db.collection('users').doc(user.uid).collection('calc_records').add(recordData);
-        alert("Розрахунок успішно збережено в хмарний архів!");
+        // 2. Збереження у Firebase (якщо залогінений)
+        const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
+        if (user) {
+            try {
+                await db.collection('users').doc(user.uid).collection('calc_records').doc(String(recordData.id)).set(recordData);
+            } catch (err) {
+                console.error("Помилка збереження у хмару:", err);
+            }
+        }
+
+        alert("Розрахунок успішно збережено!");
         renderCalcArchives();
-    } catch (err) {
-        alert("Помилка збереження: " + err.message);
-    }
-}
-
-// Завантаження збережених розрахунків із Firestore
-async function renderCalcArchives() {
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const snapshot = await db.collection('users').doc(user.uid).collection('calc_records').get();
-    const container = document.getElementById('calcArchiveList');
-    container.innerHTML = '';
-
-    if (snapshot.empty) {
-        container.innerHTML = `<li style="color: #aaa; font-size: 11px;">Немає збережених розрахунків</li>`;
-        return;
     }
 
-    snapshot.forEach(doc => {
-        const item = doc.data();
-        const li = document.createElement('li');
-        li.className = 'calc-archive-item';
-        li.innerHTML = `
-            <div>
-                <strong>${cleanEmoji(item.title)}</strong>
-                <br><small style="color:#bdc3c7;">⏱️ ${item.createdAt} | ТЗ: ${item.carName} | Витрата: <b>${item.totalQ} л</b></small>
-            </div>
-        `;
-        container.appendChild(li);
-    });
-}
-
-    function renderCalcArchives() {
-        const archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
+    async function renderCalcArchives() {
         const container = document.getElementById('calcArchiveList');
+        if (!container) return;
         container.innerHTML = '';
+
+        let archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
+        const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
+
+        if (user) {
+            try {
+                const snapshot = await db.collection('users').doc(user.uid).collection('calc_records').get();
+                if (!snapshot.empty) {
+                    archives = [];
+                    snapshot.forEach(doc => archives.push(doc.data()));
+                    localStorage.setItem('calc_saved_records', JSON.stringify(archives));
+                }
+            } catch (e) {
+                console.log("Завантажено з локальної пам'яті");
+            }
+        }
 
         if (archives.length === 0) {
             container.innerHTML = `<li style="color: #aaa; font-size: 11px;">Немає збережених розрахунків</li>`;
@@ -658,7 +663,7 @@ async function renderCalcArchives() {
             li.innerHTML = `
                 <div>
                     <strong>${cleanEmoji(item.title)}</strong>
-                    <br><small style="color:#bdc3c7;">⏱️ ${item.date} | ТЗ: ${item.carName} | Витрата: <b>${item.totalQ} л</b></small>
+                    <br><small style="color:#bdc3c7;">⏱️ ${item.createdAt || item.date} | ТЗ: ${item.carName} | Витрата: <b>${item.totalQ} л</b></small>
                 </div>
                 <div style="display:flex; gap:4px;">
                     <button class="btn btn-blue" style="padding:4px 8px; font-size:10px; margin:0;" onclick="loadCalcRecord(${item.id})">📂 Відновити</button>
@@ -706,14 +711,32 @@ async function renderCalcArchives() {
 
         archives[idx].title = cleanEmoji(newTitle);
         localStorage.setItem('calc_saved_records', JSON.stringify(archives));
+
+        const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
+        if (user) {
+            db.collection('users').doc(user.uid).collection('calc_records').doc(String(id)).update({
+                title: archives[idx].title
+            });
+        }
+
         renderCalcArchives();
     }
 
-    function deleteCalcRecord(id) {
+    async function deleteCalcRecord(id) {
         if (confirm("Видалити цей запис з архіву розрахунків?")) {
             let archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
             archives = archives.filter(a => a.id !== id);
             localStorage.setItem('calc_saved_records', JSON.stringify(archives));
+
+            const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
+            if (user) {
+                try {
+                    await db.collection('users').doc(user.uid).collection('calc_records').doc(String(id)).delete();
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+
             renderCalcArchives();
         }
     }
@@ -792,12 +815,5 @@ async function renderCalcArchives() {
         window.open('preview.html', '_blank');
     }
 </script>
-<!-- 1. Завантаження бібліотек Firebase SDK (CDN) -->
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-
-<!-- 2. Підключення вашого файлу конфігурації -->
-<script src="firebase-config.js"></script>
 </body>
 </html>
