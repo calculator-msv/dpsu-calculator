@@ -134,53 +134,72 @@
         }
     }
 
-    // 2. ВХІД КОРИСТУВАЧА / АДМІНА
-    async function handleLogin() {
-        const email = document.getElementById('login-email').value.trim();
-        const password = document.getElementById('login-password').value.trim();
+  // 2. ВХІД КОРИСТУВАЧА / АДМІНА
+async function handleLogin() {
+    // 1. Отримуємо елементи з текстових полів
+    const emailInput = document.getElementById('login-email');
+    const passwordInput = document.getElementById('login-password');
 
-        if (!email || !password) {
-            alert("Введіть Email та пароль!");
-            return;
-        }
+    // Перевіряємо чи існують поля
+    if (!emailInput || !passwordInput) {
+        alert("Помилка: Не знайдено поля входу!");
+        return;
+    }
+
+    const email = emailInput.value.trim();
+    const password = passwordInput.value.trim();
+
+    if (!email || !password) {
+        alert("Введіть Email та пароль!");
+        return;
+    }
+
+    try {
+        // 2. Авторизація через Firebase
+        const userCredential = await auth.signInWithEmailAndPassword(email, password);
+        const user = userCredential.user;
+
+        // 3. Отримання даних про роль з Firestore
+        let role = 'guest';
+        let username = email;
 
         try {
-            const userCredential = await auth.signInWithEmailAndPassword(email, password);
-            const user = userCredential.user;
-
-            // Отримання даних з Firestore про роль
             const userDoc = await db.collection("users").doc(user.uid).get();
-            let role = 'guest';
-            let username = email;
-
             if (userDoc.exists) {
                 const userData = userDoc.data();
                 role = userData.role || 'guest';
                 username = userData.fullName || email;
             }
-
-            // Очищаємо локальний кеш перед завантаженням авто користувача з хмари
-            localStorage.removeItem('cars');
-
-            localStorage.setItem('currentUser', JSON.stringify({
-                uid: user.uid,
-                username: username,
-                email: email,
-                role: role
-            }));
-
-            if (role === 'admin' || role === 'programmer') {
-                alert(`Успішний вхід! Вітаємо, ${username} (Адміністратор)`);
-                window.location.href = 'admin.html';
-            } else {
-                alert(`Успішний вхід! Вітаємо, ${username}`);
-                window.location.href = 'home.html';
-            }
-        } catch (error) {
-            alert("Помилка входу: " + error.message);
+        } catch (dbErr) {
+            console.error("Помилка зчитування ролі:", dbErr);
         }
-    }
 
+        // 4. Очищаємо застарілі дані попередніх користувачів, щоб автомобілі та розрахунки не змішувалися
+        localStorage.removeItem('cars');
+        localStorage.removeItem('calc_saved_records');
+        localStorage.removeItem('selectedCar');
+        localStorage.removeItem('selected_car_id');
+
+        // 5. Записуємо сесію поточного користувача
+        localStorage.setItem('currentUser', JSON.stringify({
+            uid: user.uid,
+            username: username,
+            email: email,
+            role: role
+        }));
+
+        // 6. Перенаправлення
+        if (role === 'admin' || role === 'programmer') {
+            alert(`Успішний вхід! Вітаємо, ${username} (Адміністратор)`);
+            window.location.href = 'admin.html';
+        } else {
+            alert(`Успішний вхід! Вітаємо, ${username}`);
+            window.location.href = 'home.html';
+        }
+    } catch (error) {
+        alert("Помилка входу: " + error.message);
+    }
+}
    // При вході як гість повністю очищаємо локальний кеш попередніх акаунтів
 async function loginAsGuest() {
     if (typeof auth !== 'undefined' && auth.currentUser) {
