@@ -251,17 +251,28 @@ auth.onAuthStateChanged((user) => {
 
 // Додавання автомобіля у Firestore
 async function addCar() {
-    const user = auth.currentUser;
-    if (!user) return alert("Будь ласка, увійдіть у систему!");
-
     const name = document.getElementById('n_name').value.trim();
     const plate = document.getElementById('n_plate').value.trim();
-    if (!name) return alert("Введіть марку/модель автомобіля!");
+    
+    if (!name) {
+        alert("Помилка: Введіть марку/модель автомобіля!");
+        return;
+    }
+
+    // 1. Отримуємо поточного користувача з сесії
+    const sessionUser = JSON.parse(localStorage.getItem('currentUser'));
+    const firebaseUser = typeof auth !== 'undefined' ? auth.currentUser : null;
+
+    if (!sessionUser && !firebaseUser) {
+        alert("Будь ласка, увійдіть у систему!");
+        window.location.href = 'index.html';
+        return;
+    }
 
     const hasCargo = document.getElementById('n_has_cargo').checked;
     const hasAdBlue = document.getElementById('n_has_adblue').checked;
 
-    const carData = {
+    const carObj = {
         name: name,
         plate: plate || "Б/Н",
         category: document.getElementById('n_category').value,
@@ -274,19 +285,32 @@ async function addCar() {
         om: parseFloat(document.getElementById('n_om').value) || 0,
         ot: parseFloat(document.getElementById('n_ot').value) || 0,
         os: parseFloat(document.getElementById('n_os').value) || 0,
-        op: parseFloat(document.getElementById('n_op').value) || 0,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        op: parseFloat(document.getElementById('n_op').value) || 0
     };
 
-    try {
-        await db.collection('users').doc(user.uid).collection('cars').add(carData);
-        alert("Автомобіль успішно збережено в хмару!");
-        document.getElementById('n_name').value = "";
-        document.getElementById('n_plate').value = "";
-        render();
-    } catch (e) {
-        alert("Помилка збереження: " + e.message);
+    // 2. Збереження у LocalStorage (для локальної роботи та калькулятора)
+    let db = JSON.parse(localStorage.getItem('cars')) || {};
+    const id = name + (plate ? "_" + plate : "");
+    carObj.id = id;
+    db[id] = carObj;
+    localStorage.setItem('cars', JSON.stringify(db));
+
+    // 3. Збереження у Хмару Firebase Firestore (якщо користувач авторизований через хмару)
+    if (firebaseUser) {
+        try {
+            await firebase.firestore().collection('users').doc(firebaseUser.uid).collection('cars').doc(id).set(carObj);
+            console.log("Авто успішно синхронізовано з хмарою!");
+        } catch (e) {
+            console.error("Помилка хмарного збереження:", e);
+        }
     }
+
+    // Очищення форми
+    document.getElementById('n_name').value = "";
+    document.getElementById('n_plate').value = "";
+    
+    render();
+    alert("Автомобіль успішно додано!");
 }
 
 // Отримання списку авто з хмари
