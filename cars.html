@@ -116,38 +116,35 @@
     <div id="categoryContainer"></div>
 </div>
 
-<!-- 1. Підключення SDK Firebase (CDN) -->
+<!-- 1. ПІДКТЮЧЕННЯ FIREBASE ТІЛЬКИ СПОЧАТКУ -->
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-
-<!-- 2. Підключення вашої конфігурації -->
 <script src="firebase-config.js"></script>
 
-<!-- 3. Оновлена логіка роботи з базою -->
+<!-- 2. ОСНОВНИЙ СКРИПТ (ПІСЛЯ FIREBASE) -->
 <script>
     let categories = JSON.parse(localStorage.getItem('car_categories')) || ["Вантажні", "Легкові", "Спеціальні"];
 
-    // Синхронізація зі станом авторизації Firebase
-    auth.onAuthStateChanged((user) => {
-        if (user) {
-            // Зберігаємо сесію
-            localStorage.setItem('currentUser', JSON.stringify({
-                uid: user.uid,
-                email: user.email,
-                username: user.displayName || user.email
-            }));
-            render();
-        } else {
-            // Якщо не авторизований у Firebase, перевіряємо гостьовий/локальний режим
-            const localUser = localStorage.getItem('currentUser');
-            if (!localUser) {
-                window.location.href = 'index.html';
-            } else {
+    // Первинне завантаження сторінки
+    window.addEventListener('DOMContentLoaded', () => {
+        updateCategorySelect();
+        render();
+    });
+
+    // Слухач авторизації Firebase
+    if (typeof auth !== 'undefined') {
+        auth.onAuthStateChanged((user) => {
+            if (user) {
+                localStorage.setItem('currentUser', JSON.stringify({
+                    uid: user.uid,
+                    email: user.email,
+                    username: user.displayName || user.email
+                }));
                 render();
             }
-        }
-    });
+        });
+    }
 
     function toggleCargoInput() {
         const checked = document.getElementById('n_has_cargo').checked;
@@ -168,7 +165,19 @@
         });
     }
 
-    // ДОДАВАННЯ АВТОМОБІЛЯ (БЕЗ ПОМИЛКИ ВХОДУ)
+    function addCustomCategory() {
+        const newCat = prompt("Введіть назву нового виду/категорії ТЗ:");
+        if (newCat && newCat.trim()) {
+            const cleanCat = newCat.trim();
+            if (!categories.includes(cleanCat)) {
+                categories.push(cleanCat);
+                localStorage.setItem('car_categories', JSON.stringify(categories));
+                updateCategorySelect();
+                render();
+            }
+        }
+    }
+
     async function addCar() {
         const name = document.getElementById('n_name').value.trim();
         const plate = document.getElementById('n_plate').value.trim();
@@ -178,18 +187,17 @@
             return;
         }
 
-        const user = auth.currentUser;
         const localUser = JSON.parse(localStorage.getItem('currentUser'));
+        const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
 
         if (!user && !localUser) {
-            alert("Помилка: Сесія закінчилася. Будь ласка, увійдіть знову!");
+            alert("Помилка: Будь ласка, увійдіть у систему!");
             window.location.href = 'index.html';
             return;
         }
 
         const hasCargo = document.getElementById('n_has_cargo').checked;
         const hasAdBlue = document.getElementById('n_has_adblue').checked;
-
         const id = name + (plate ? "_" + plate : "");
 
         const carData = {
@@ -209,13 +217,13 @@
             op: parseFloat(document.getElementById('n_op').value) || 0
         };
 
-        // 1. Локальне збереження для миттєвого відображення в калькуляторі
+        // 1. Локальне збереження
         let localDb = JSON.parse(localStorage.getItem('cars')) || {};
         localDb[id] = carData;
         localStorage.setItem('cars', JSON.stringify(localDb));
 
-        // 2. Хмарне збереження у Firestore
-        if (user) {
+        // 2. Хмарне збереження в Firestore
+        if (user && typeof db !== 'undefined') {
             try {
                 await db.collection('users').doc(user.uid).collection('cars').doc(id).set(carData);
             } catch (err) {
@@ -230,14 +238,12 @@
         alert("Автомобіль успішно збережено!");
     }
 
-    // РЕНДЕР СПИСКУ АВТОМОБІЛІВ
     async function render() {
         updateCategorySelect();
-        const user = auth.currentUser;
         let dbCars = JSON.parse(localStorage.getItem('cars')) || {};
 
-        // Завантаження з хмари, якщо користувач авторизований
-        if (user) {
+        const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
+        if (user && typeof db !== 'undefined') {
             try {
                 const snapshot = await db.collection('users').doc(user.uid).collection('cars').get();
                 if (!snapshot.empty) {
@@ -248,7 +254,7 @@
                     localStorage.setItem('cars', JSON.stringify(dbCars));
                 }
             } catch (e) {
-                console.log("Завантажено з локальної пам'яті");
+                console.log("Використано дані з локальної пам'яті");
             }
         }
 
@@ -316,15 +322,13 @@
 
     async function deleteCar(id) {
         if (confirm("Видалити цей автомобіль з бази?")) {
-            const user = auth.currentUser;
+            const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
 
-            // Видаляємо з локальної бази
             let localDb = JSON.parse(localStorage.getItem('cars')) || {};
             delete localDb[id];
             localStorage.setItem('cars', JSON.stringify(localDb));
 
-            // Видаляємо з хмари
-            if (user) {
+            if (user && typeof db !== 'undefined') {
                 try {
                     await db.collection('users').doc(user.uid).collection('cars').doc(id).delete();
                 } catch (e) {
@@ -345,10 +349,15 @@
         localStorage.setItem('selected_car_id', id);
         window.location.href = 'calc.html';
     }
+
+    function sortCars(type) {
+        let dbCars = JSON.parse(localStorage.getItem('cars')) || {};
+        let sortedEntries = Object.entries(dbCars).sort((a, b) => a[1].name.localeCompare(b[1].name));
+        let newDb = {};
+        sortedEntries.forEach(([key, val]) => { newDb[key] = val; });
+        localStorage.setItem('cars', JSON.stringify(newDb));
+        render();
+    }
 </script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
-<script src="firebase-config.js"></script>
 </body>
 </html>
