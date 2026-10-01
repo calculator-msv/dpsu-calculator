@@ -48,13 +48,13 @@
     <button onclick="loginAsGuest()" class="guest-btn">УВІЙТИ ЯК ГІСТЬ</button>
 </div>
 
-<!-- Підключення Firebase SDK -->
+<!-- 1. ПІДКТЮЧЕННЯ FIREBASE ТІЛЬКИ СПОЧАТКУ -->
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
+<!-- 2. КОНФІГУРАЦІЯ FIREBASE -->
 <script>
-    // Конфігурація вашого Firebase
     const firebaseConfig = {
         apiKey: "AIzaSyBF8fvgM_-QaRJQCVDjsO61mYS8w30Svbo",
         authDomain: "dpsu-calculator-db.firebaseapp.com",
@@ -66,11 +66,15 @@
     };
 
     // Ініціалізація
-    firebase.initializeApp(firebaseConfig);
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
     const auth = firebase.auth();
     const db = firebase.firestore();
+</script>
 
-    // Перемикання вкладок
+<!-- 3. ОСНОВНА ЛОГІКА АВТОРИЗАЦІЇ -->
+<script>
     function switchTab(tab) {
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
         document.querySelectorAll('.form-group').forEach(form => form.classList.remove('active'));
@@ -112,6 +116,9 @@
                 createdAt: new Date()
             });
 
+            // Очищаємо локальні авто, щоб не показувати дані попередніх користувачів
+            localStorage.removeItem('cars');
+
             // Збереження в локальну сесію
             localStorage.setItem('currentUser', JSON.stringify({
                 uid: user.uid,
@@ -152,6 +159,9 @@
                 username = userData.fullName || email;
             }
 
+            // Очищаємо локальний кеш перед завантаженням авто користувача з хмари
+            localStorage.removeItem('cars');
+
             localStorage.setItem('currentUser', JSON.stringify({
                 uid: user.uid,
                 username: username,
@@ -159,7 +169,6 @@
                 role: role
             }));
 
-            // Перенаправлення відповідно до ролі
             if (role === 'admin' || role === 'programmer') {
                 alert(`Успішний вхід! Вітаємо, ${username} (Адміністратор)`);
                 window.location.href = 'admin.html';
@@ -173,18 +182,20 @@
     }
 
     // 3. ВХІД ЯК ГІСТЬ
-    function loginAsGuest() {
-        const user = { username: 'Гість', role: 'guest' };
+    async function loginAsGuest() {
+        // Якщо до цього був авторизований акаунт Firebase — виходимо з нього
+        if (auth.currentUser) {
+            await auth.signOut();
+        }
+        
+        // Очищаємо локальну базу машин для гостя, щоб він не бачив чужих даних
+        localStorage.removeItem('cars');
+
+        const user = { username: 'Гість', role: 'guest', uid: 'guest_local' };
         localStorage.setItem('currentUser', JSON.stringify(user));
         window.location.href = 'home.html';
     }
 </script>
-<!-- 1. Завантаження бібліотек Firebase (CDN) -->
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
-<!-- 2. Ваша конфігурація -->
-<script src="firebase-config.js"></script>
 </body>
 </html>
