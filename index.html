@@ -181,20 +181,38 @@
         }
     }
 
-    // 3. ВХІД ЯК ГІСТЬ
-    async function loginAsGuest() {
-        // Якщо до цього був авторизований акаунт Firebase — виходимо з нього
-        if (auth.currentUser) {
-            await auth.signOut();
-        }
-        
-        // Очищаємо локальну базу машин для гостя, щоб він не бачив чужих даних
-        localStorage.removeItem('cars');
-
-        const user = { username: 'Гість', role: 'guest', uid: 'guest_local' };
-        localStorage.setItem('currentUser', JSON.stringify(user));
-        window.location.href = 'home.html';
+   // При вході як гість повністю очищаємо локальний кеш попередніх акаунтів
+async function loginAsGuest() {
+    if (typeof auth !== 'undefined' && auth.currentUser) {
+        await auth.signOut();
     }
+    
+    // Очищаємо всі локальні тимчасові дані
+    localStorage.removeItem('cars');
+    localStorage.removeItem('calc_saved_records');
+    localStorage.removeItem('selectedCar');
+    localStorage.removeItem('selected_car_id');
+
+    const user = { username: 'Гість', role: 'guest', uid: 'guest_local' };
+    localStorage.setItem('currentUser', JSON.stringify(user));
+    window.location.href = 'home.html';
+}
+
+// У функції handleLogin() додайте очищення перед завантаженням нових даних користувача:
+async function handleLogin() {
+    // ... ваш код входу ...
+    try {
+        const userCredential = await auth.signInWithEmailAndPassword(email, password);
+        
+        // Очищаємо локальний кеш перед завантаженням персональних даних користувача з хмари
+        localStorage.removeItem('cars');
+        localStorage.removeItem('calc_saved_records');
+        
+        // ... далі ваш код перенаправлення на home.html ...
+    } catch(e) {
+        alert("Помилка входу: " + e.message);
+    }
+}
 </script>
 
 </body>
