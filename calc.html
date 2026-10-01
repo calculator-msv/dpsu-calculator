@@ -583,40 +583,64 @@
         return rows;
     }
 
-    function saveCalculationRecord() {
-        const rows = getCurrentRowsData();
-        if (rows.length === 0) {
-            alert("Таблиця розрахунку порожня!");
-            return;
-        }
+    async function saveCalculationRecord() {
+    const rows = getCurrentRowsData();
+    if (rows.length === 0) return alert("Таблиця розрахунку порожня!");
 
-        const carSelect = document.getElementById('carSelect');
-        if (!carSelect.value) {
-            alert("Будь ласка, спочатку виберіть ТЗ!");
-            return;
-        }
+    const user = auth.currentUser;
+    if (!user) return alert("Ви не авторизовані!");
 
-        const carName = carSelect.options[carSelect.selectedIndex]?.text || "ТЗ";
-        let title = prompt("Введіть назву або примітку розрахунку:", `Розрахунок (${carName}) - ${new Date().toLocaleDateString('uk-UA')}`);
-        if (!title) return;
-        title = cleanEmoji(title);
+    const carSelect = document.getElementById('carSelect');
+    const carName = carSelect.options[carSelect.selectedIndex]?.text || "ТЗ";
+    let title = prompt("Введіть назву розрахунку:");
+    if (!title) return;
 
-        const archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
-        archives.unshift({
-            id: Date.now(),
-            date: new Date().toLocaleString('uk-UA'),
-            title: title,
-            carName: carName,
-            trailerActive: trailerActive,
-            gTrailler: document.getElementById('g_trailler').value,
-            rows: rows,
-            totalQ: document.getElementById('r_q').innerText
-        });
+    const recordData = {
+        title: cleanEmoji(title),
+        carName: carName,
+        trailerActive: trailerActive,
+        gTrailler: document.getElementById('g_trailler').value,
+        rows: rows,
+        totalQ: document.getElementById('r_q').innerText,
+        createdAt: new Date().toLocaleString('uk-UA')
+    };
 
-        localStorage.setItem('calc_saved_records', JSON.stringify(archives));
+    try {
+        await db.collection('users').doc(user.uid).collection('calc_records').add(recordData);
+        alert("Розрахунок успішно збережено в хмарний архів!");
         renderCalcArchives();
-        alert("Розрахунок успішно збережено в архів!");
+    } catch (err) {
+        alert("Помилка збереження: " + err.message);
     }
+}
+
+// Завантаження збережених розрахунків із Firestore
+async function renderCalcArchives() {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    const snapshot = await db.collection('users').doc(user.uid).collection('calc_records').get();
+    const container = document.getElementById('calcArchiveList');
+    container.innerHTML = '';
+
+    if (snapshot.empty) {
+        container.innerHTML = `<li style="color: #aaa; font-size: 11px;">Немає збережених розрахунків</li>`;
+        return;
+    }
+
+    snapshot.forEach(doc => {
+        const item = doc.data();
+        const li = document.createElement('li');
+        li.className = 'calc-archive-item';
+        li.innerHTML = `
+            <div>
+                <strong>${cleanEmoji(item.title)}</strong>
+                <br><small style="color:#bdc3c7;">⏱️ ${item.createdAt} | ТЗ: ${item.carName} | Витрата: <b>${item.totalQ} л</b></small>
+            </div>
+        `;
+        container.appendChild(li);
+    });
+}
 
     function renderCalcArchives() {
         const archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
