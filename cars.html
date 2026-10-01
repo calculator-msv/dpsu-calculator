@@ -116,8 +116,38 @@
     <div id="categoryContainer"></div>
 </div>
 
+<!-- 1. Підключення SDK Firebase (CDN) -->
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+<!-- 2. Підключення вашої конфігурації -->
+<script src="firebase-config.js"></script>
+
+<!-- 3. Оновлена логіка роботи з базою -->
 <script>
     let categories = JSON.parse(localStorage.getItem('car_categories')) || ["Вантажні", "Легкові", "Спеціальні"];
+
+    // Синхронізація зі станом авторизації Firebase
+    auth.onAuthStateChanged((user) => {
+        if (user) {
+            // Зберігаємо сесію
+            localStorage.setItem('currentUser', JSON.stringify({
+                uid: user.uid,
+                email: user.email,
+                username: user.displayName || user.email
+            }));
+            render();
+        } else {
+            // Якщо не авторизований у Firebase, перевіряємо гостьовий/локальний режим
+            const localUser = localStorage.getItem('currentUser');
+            if (!localUser) {
+                window.location.href = 'index.html';
+            } else {
+                render();
+            }
+        }
+    });
 
     function toggleCargoInput() {
         const checked = document.getElementById('n_has_cargo').checked;
@@ -131,32 +161,102 @@
 
     function updateCategorySelect() {
         const select = document.getElementById('n_category');
+        if (!select) return;
         select.innerHTML = '';
         categories.forEach(cat => {
             select.innerHTML += `<option value="${cat}">${cat}</option>`;
         });
     }
 
-    function addCustomCategory() {
-        const newCat = prompt("Введіть назву нового виду/категорії ТЗ:");
-        if (newCat && newCat.trim()) {
-            const cleanCat = newCat.trim();
-            if (!categories.includes(cleanCat)) {
-                categories.push(cleanCat);
-                localStorage.setItem('car_categories', JSON.stringify(categories));
-                updateCategorySelect();
-                render();
+    // ДОДАВАННЯ АВТОМОБІЛЯ (БЕЗ ПОМИЛКИ ВХОДУ)
+    async function addCar() {
+        const name = document.getElementById('n_name').value.trim();
+        const plate = document.getElementById('n_plate').value.trim();
+        
+        if (!name) {
+            alert("Помилка: Введіть марку/модель автомобіля!");
+            return;
+        }
+
+        const user = auth.currentUser;
+        const localUser = JSON.parse(localStorage.getItem('currentUser'));
+
+        if (!user && !localUser) {
+            alert("Помилка: Сесія закінчилася. Будь ласка, увійдіть знову!");
+            window.location.href = 'index.html';
+            return;
+        }
+
+        const hasCargo = document.getElementById('n_has_cargo').checked;
+        const hasAdBlue = document.getElementById('n_has_adblue').checked;
+
+        const id = name + (plate ? "_" + plate : "");
+
+        const carData = {
+            id: id,
+            name: name,
+            plate: plate || "Б/Н",
+            category: document.getElementById('n_category').value,
+            hsm: parseFloat(document.getElementById('n_hsm').value) || 0,
+            hsz: parseFloat(document.getElementById('n_hw').value) || 0,
+            hasCargo: hasCargo,
+            maxPayload: hasCargo ? (parseFloat(document.getElementById('n_max_payload').value) || 0) : 0,
+            hasAdBlue: hasAdBlue,
+            adBlueRate: hasAdBlue ? (parseFloat(document.getElementById('n_adblue_rate').value) || 0) : 0,
+            om: parseFloat(document.getElementById('n_om').value) || 0,
+            ot: parseFloat(document.getElementById('n_ot').value) || 0,
+            os: parseFloat(document.getElementById('n_os').value) || 0,
+            op: parseFloat(document.getElementById('n_op').value) || 0
+        };
+
+        // 1. Локальне збереження для миттєвого відображення в калькуляторі
+        let localDb = JSON.parse(localStorage.getItem('cars')) || {};
+        localDb[id] = carData;
+        localStorage.setItem('cars', JSON.stringify(localDb));
+
+        // 2. Хмарне збереження у Firestore
+        if (user) {
+            try {
+                await db.collection('users').doc(user.uid).collection('cars').doc(id).set(carData);
+            } catch (err) {
+                console.error("Помилка запису у хмару:", err);
             }
         }
+
+        document.getElementById('n_name').value = "";
+        document.getElementById('n_plate').value = "";
+        
+        render();
+        alert("Автомобіль успішно збережено!");
     }
 
-    function render() {
+    // РЕНДЕР СПИСКУ АВТОМОБІЛІВ
+    async function render() {
         updateCategorySelect();
-        const db = JSON.parse(localStorage.getItem('cars')) || {};
+        const user = auth.currentUser;
+        let dbCars = JSON.parse(localStorage.getItem('cars')) || {};
+
+        // Завантаження з хмари, якщо користувач авторизований
+        if (user) {
+            try {
+                const snapshot = await db.collection('users').doc(user.uid).collection('cars').get();
+                if (!snapshot.empty) {
+                    dbCars = {};
+                    snapshot.forEach(doc => {
+                        dbCars[doc.id] = doc.data();
+                    });
+                    localStorage.setItem('cars', JSON.stringify(dbCars));
+                }
+            } catch (e) {
+                console.log("Завантажено з локальної пам'яті");
+            }
+        }
+
         const container = document.getElementById('categoryContainer');
+        if (!container) return;
         container.innerHTML = "";
 
-        if (Object.keys(db).length === 0) {
+        if (Object.keys(dbCars).length === 0) {
             container.innerHTML = '<div style="text-align:center; color:#777; margin-top:50px;">База автомобілів порожня. Додайте перше авто ліворуч.</div>';
             return;
         }
@@ -164,26 +264,19 @@
         categories.forEach(cat => {
             const catBox = document.createElement('div');
             catBox.className = 'category-block';
-            catBox.dataset.category = cat;
-
-            catBox.ondragover = (e) => e.preventDefault();
-            catBox.ondrop = (e) => dropCarToCategory(e, cat);
 
             let html = `<div class="category-title">
                             <span>📁 ${cat}</span>
-                            <button onclick="deleteCategory('${cat}')" style="background:none; border:none; color:#e74c3c; cursor:pointer; font-size:11px;" title="Видалити категорію">🗑️</button>
                         </div>`;
 
             let hasCars = false;
-            for (let id in db) {
-                const car = db[id];
-                const carCat = car.category || "Вантажні";
-
-                if (carCat === cat) {
+            for (let id in dbCars) {
+                const car = dbCars[id];
+                if ((car.category || "Вантажні") === cat) {
                     hasCars = true;
                     html += `
-                        <div class="car-card" draggable="true" ondragstart="dragCar(event, '${id}')" onclick="toggleDetails('${id}')">
-                            <button class="btn-mini-del" onclick="event.stopPropagation(); deleteCar('${id}')" title="Видалити">✕</button>
+                        <div class="car-card" onclick="toggleDetails('${id}')">
+                            <button class="btn-mini-del" onclick="event.stopPropagation(); deleteCar('${id}')">✕</button>
                             <div class="car-main-info">
                                 <div>
                                     <span class="car-name">🚗 ${car.name}</span>
@@ -193,14 +286,10 @@
                             </div>
                             <div id="details-${id}" class="car-details">
                                 <div class="detail-grid">
-                                    <span><b>Hs (базова):</b> ${car.hsm} л</span>
-                                    <span><b>Hw (вантаж):</b> ${car.hsz || 0} л</span>
-                                    <span><b>Макс. вантаж:</b> ${car.maxPayload ? car.maxPayload + ' т' : 'Н/Д'}</span>
-                                    <span><b>AdBlue норма:</b> ${car.hasAdBlue ? car.adBlueRate + '%' : 'Ні'}</span>
+                                    <span><b>Hs:</b> ${car.hsm} л</span>
+                                    <span><b>Hw:</b> ${car.hsz || 0} л</span>
                                     <span><b>Моторна (M):</b> ${car.om} л</span>
                                     <span><b>Трансм. (T):</b> ${car.ot} л</span>
-                                    <span><b>Спеціальна (S):</b> ${car.os} л</span>
-                                    <span><b>Пластична (P):</b> ${car.op} л</span>
                                 </div>
                                 <button class="btn-select-calc" onclick="event.stopPropagation(); selectForCalc('${id}')">Обрати для розрахунку</button>
                             </div>
@@ -209,7 +298,7 @@
             }
 
             if (!hasCars) {
-                html += `<div style="font-size:11px; color:#555; text-align:center; padding:10px;">Перетягніть сюди авто або додайте нове</div>`;
+                html += `<div style="font-size:11px; color:#555; text-align:center; padding:10px;">Немає авто в цій категорії</div>`;
             }
 
             catBox.innerHTML = html;
@@ -217,213 +306,45 @@
         });
     }
 
-    function dragCar(e, id) {
-        e.dataTransfer.setData("text/plain", id);
-    }
-
-    function dropCarToCategory(e, newCat) {
-        e.preventDefault();
-        const id = e.dataTransfer.getData("text/plain");
-        let db = JSON.parse(localStorage.getItem('cars')) || {};
-
-        if (db[id]) {
-            db[id].category = newCat;
-            localStorage.setItem('cars', JSON.stringify(db));
-            render();
-        }
-    }
-
     function toggleDetails(id) {
         const el = document.getElementById('details-' + id);
+        if (!el) return;
         const isVisible = el.style.display === 'block';
         document.querySelectorAll('.car-details').forEach(d => d.style.display = 'none');
         el.style.display = isVisible ? 'none' : 'block';
     }
 
-   // Автоматична перевірка входу
-auth.onAuthStateChanged((user) => {
-    if (user) {
-        render(); // Завантажуємо авто з хмари
-    } else {
-        window.location.href = 'index.html';
-    }
-});
+    async function deleteCar(id) {
+        if (confirm("Видалити цей автомобіль з бази?")) {
+            const user = auth.currentUser;
 
-// Додавання автомобіля у Firestore
-async function addCar() {
-    const name = document.getElementById('n_name').value.trim();
-    const plate = document.getElementById('n_plate').value.trim();
-    
-    if (!name) {
-        alert("Помилка: Введіть марку/модель автомобіля!");
-        return;
-    }
+            // Видаляємо з локальної бази
+            let localDb = JSON.parse(localStorage.getItem('cars')) || {};
+            delete localDb[id];
+            localStorage.setItem('cars', JSON.stringify(localDb));
 
-    // 1. Отримуємо поточного користувача з сесії
-    const sessionUser = JSON.parse(localStorage.getItem('currentUser'));
-    const firebaseUser = typeof auth !== 'undefined' ? auth.currentUser : null;
-
-    if (!sessionUser && !firebaseUser) {
-        alert("Будь ласка, увійдіть у систему!");
-        window.location.href = 'index.html';
-        return;
-    }
-
-    const hasCargo = document.getElementById('n_has_cargo').checked;
-    const hasAdBlue = document.getElementById('n_has_adblue').checked;
-
-    const carObj = {
-        name: name,
-        plate: plate || "Б/Н",
-        category: document.getElementById('n_category').value,
-        hsm: parseFloat(document.getElementById('n_hsm').value) || 0,
-        hsz: parseFloat(document.getElementById('n_hw').value) || 0,
-        hasCargo: hasCargo,
-        maxPayload: hasCargo ? (parseFloat(document.getElementById('n_max_payload').value) || 0) : 0,
-        hasAdBlue: hasAdBlue,
-        adBlueRate: hasAdBlue ? (parseFloat(document.getElementById('n_adblue_rate').value) || 0) : 0,
-        om: parseFloat(document.getElementById('n_om').value) || 0,
-        ot: parseFloat(document.getElementById('n_ot').value) || 0,
-        os: parseFloat(document.getElementById('n_os').value) || 0,
-        op: parseFloat(document.getElementById('n_op').value) || 0
-    };
-
-    // 2. Збереження у LocalStorage (для локальної роботи та калькулятора)
-    let db = JSON.parse(localStorage.getItem('cars')) || {};
-    const id = name + (plate ? "_" + plate : "");
-    carObj.id = id;
-    db[id] = carObj;
-    localStorage.setItem('cars', JSON.stringify(db));
-
-    // 3. Збереження у Хмару Firebase Firestore (якщо користувач авторизований через хмару)
-    if (firebaseUser) {
-        try {
-            await firebase.firestore().collection('users').doc(firebaseUser.uid).collection('cars').doc(id).set(carObj);
-            console.log("Авто успішно синхронізовано з хмарою!");
-        } catch (e) {
-            console.error("Помилка хмарного збереження:", e);
-        }
-    }
-
-    // Очищення форми
-    document.getElementById('n_name').value = "";
-    document.getElementById('n_plate').value = "";
-    
-    render();
-    alert("Автомобіль успішно додано!");
-}
-
-// Отримання списку авто з хмари
-async function render() {
-    updateCategorySelect();
-    const user = auth.currentUser;
-    if (!user) return;
-
-    const snapshot = await db.collection('users').doc(user.uid).collection('cars').get();
-    const container = document.getElementById('categoryContainer');
-    container.innerHTML = "";
-
-    if (snapshot.empty) {
-        container.innerHTML = '<div style="text-align:center; color:#777; margin-top:50px;">База автомобілів порожня. Додайте перше авто ліворуч.</div>';
-        return;
-    }
-
-    // Збираємо авто у структурований масив
-    let dbCars = {};
-    snapshot.forEach(doc => {
-        dbCars[doc.id] = doc.data();
-    });
-
-    // Збережемо локальну копію для миттєвого вибору у калькуляторі
-    localStorage.setItem('cars', JSON.stringify(dbCars));
-
-    categories.forEach(cat => {
-        const catBox = document.createElement('div');
-        catBox.className = 'category-block';
-        catBox.dataset.category = cat;
-
-        let html = `<div class="category-title">
-                        <span>📁 ${cat}</span>
-                    </div>`;
-
-        let hasCars = false;
-        for (let id in dbCars) {
-            const car = dbCars[id];
-            if ((car.category || "Вантажні") === cat) {
-                hasCars = true;
-                html += `
-                    <div class="car-card" onclick="toggleDetails('${id}')">
-                        <button class="btn-mini-del" onclick="event.stopPropagation(); deleteCar('${id}')">✕</button>
-                        <div class="car-main-info">
-                            <div>
-                                <span class="car-name">🚗 ${car.name}</span>
-                                <span class="car-plate">${car.plate || 'Б/Н'}</span>
-                            </div>
-                        </div>
-                        <div id="details-${id}" class="car-details">
-                            <button class="btn-select-calc" onclick="event.stopPropagation(); selectForCalc('${id}')">Обрати для розрахунку</button>
-                        </div>
-                    </div>`;
+            // Видаляємо з хмари
+            if (user) {
+                try {
+                    await db.collection('users').doc(user.uid).collection('cars').doc(id).delete();
+                } catch (e) {
+                    console.error(e);
+                }
             }
-        }
-        if (!hasCars) html += `<div style="font-size:11px; color:#555; text-align:center; padding:10px;">Немає авто в цієї категорії</div>`;
-        catBox.innerHTML = html;
-        container.appendChild(catBox);
-    });
-}
 
-// Видалення авто з Firestore
-async function deleteCar(docId) {
-    if (confirm("Видалити цей автомобіль з бази?")) {
-        const user = auth.currentUser;
-        await db.collection('users').doc(user.uid).collection('cars').doc(docId).delete();
-        render();
-    }
-}
-    function deleteCategory(cat) {
-        if (categories.length <= 1) {
-            alert("Повинна залишатися хоча б одна категорія!");
-            return;
-        }
-        if (confirm(`Видалити категорію "${cat}"? Автомобілі перемістяться в перший доступний вид.`)) {
-            categories = categories.filter(c => c !== cat);
-            localStorage.setItem('car_categories', JSON.stringify(categories));
-
-            let db = JSON.parse(localStorage.getItem('cars')) || {};
-            for (let id in db) {
-                if (db[id].category === cat) db[id].category = categories[0];
-            }
-            localStorage.setItem('cars', JSON.stringify(db));
             render();
         }
     }
 
-    function sortCars(type) {
-        let db = JSON.parse(localStorage.getItem('cars')) || {};
-        let sortedEntries = Object.entries(db).sort((a, b) => a[1].name.localeCompare(b[1].name));
-        
-        let newDb = {};
-        sortedEntries.forEach(([key, val]) => { newDb[key] = val; });
-        
-        localStorage.setItem('cars', JSON.stringify(newDb));
-        render();
-    }
-
-    // ТУТ ВИПРАВЛЕНО ПЕРЕДАЧУ ID ТА НАЗВИ В КЕЛЬКУЛЯТОР
     function selectForCalc(id) {
-        let db = JSON.parse(localStorage.getItem('cars')) || {};
-        const car = db[id];
+        let dbCars = JSON.parse(localStorage.getItem('cars')) || {};
+        const car = dbCars[id];
         if (!car) return;
 
         localStorage.setItem('selectedCar', JSON.stringify(car));
         localStorage.setItem('selected_car_id', id);
-        localStorage.setItem('selected_car_name', car.name);
-        localStorage.setItem('selected_car_plate', car.plate);
-
         window.location.href = 'calc.html';
     }
-
-    window.onload = render;
 </script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
