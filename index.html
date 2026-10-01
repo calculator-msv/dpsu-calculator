@@ -34,7 +34,8 @@
     <div id="login-form" class="form-group active">
         <input type="email" id="login-email" placeholder="Email (Електронна пошта)">
         <input type="password" id="login-password" placeholder="Пароль">
-       <button type="button" onclick="handleLogin()">УВІЙТИ</button>
+        <!-- ВАЖЛИВО: handleLogin() БЕЗ ПАРАМЕТРІВ В ДУЖКАХ -->
+        <button class="action-btn" type="button" onclick="handleLogin()">УВІЙТИ</button>
     </div>
 
     <!-- ФОРМА РЕЄСТРАЦІЇ -->
@@ -42,18 +43,19 @@
         <input type="text" id="reg-fullname" placeholder="ПІБ або Підрозділ">
         <input type="email" id="reg-email" placeholder="Email (Електронна пошта)">
         <input type="password" id="reg-password" placeholder="Пароль (від 6 символів)">
-        <button class="action-btn" onclick="handleRegister()">ЗАРЕЄСТРУВАТИСЯ</button>
+        <!-- ВАЖЛИВО: handleRegister() БЕЗ ПАРАМЕТРІВ В ДУЖКАХ -->
+        <button class="action-btn" type="button" onclick="handleRegister()">ЗАРЕЄСТРУВАТИСЯ</button>
     </div>
 
-    <button onclick="loginAsGuest()" class="guest-btn">УВІЙТИ ЯК ГІСТЬ</button>
+    <button type="button" onclick="loginAsGuest()" class="guest-btn">УВІЙТИ ЯК ГІСТЬ</button>
 </div>
 
-<!-- 1. ПІДКТЮЧЕННЯ FIREBASE ТІЛЬКИ СПОЧАТКУ -->
+<!-- 1. ПІДКТЮЧЕННЯ FIREBASE СДK -->
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
-<!-- 2. КОНФІГУРАЦІЯ FIREBASE -->
+<!-- 2. ІНІЦІАЛІЗАЦІЯ FIREBASE -->
 <script>
     const firebaseConfig = {
         apiKey: "AIzaSyBF8fvgM_-QaRJQCVDjsO61mYS8w30Svbo",
@@ -65,7 +67,6 @@
         measurementId: "G-8PDNTXSCD2"
     };
 
-    // Ініціалізація
     if (!firebase.apps.length) {
         firebase.initializeApp(firebaseConfig);
     }
@@ -73,7 +74,7 @@
     const db = firebase.firestore();
 </script>
 
-<!-- 3. ОСНОВНА ЛОГІКА АВТОРИЗАЦІЇ -->
+<!-- 3. ЛОГІКА АВТОРИЗАЦІЇ -->
 <script>
     function switchTab(tab) {
         document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -88,7 +89,7 @@
         }
     }
 
-    // 1. РЕЄСТРАЦІЯ НОВОГО КОРИСТУВАЧА
+    // РЕЄСТРАЦІЯ
     async function handleRegister() {
         const fullName = document.getElementById('reg-fullname').value.trim();
         const email = document.getElementById('reg-email').value.trim();
@@ -108,7 +109,6 @@
             const userCredential = await auth.createUserWithEmailAndPassword(email, password);
             const user = userCredential.user;
 
-            // Збереження даних у хмару Firestore
             await db.collection("users").doc(user.uid).set({
                 fullName: fullName,
                 email: email,
@@ -116,10 +116,9 @@
                 createdAt: new Date()
             });
 
-            // Очищаємо локальні авто, щоб не показувати дані попередніх користувачів
             localStorage.removeItem('cars');
+            localStorage.removeItem('calc_saved_records');
 
-            // Збереження в локальну сесію
             localStorage.setItem('currentUser', JSON.stringify({
                 uid: user.uid,
                 username: fullName,
@@ -134,103 +133,82 @@
         }
     }
 
-  // 2. ВХІД КОРИСТУВАЧА / АДМІНА
-async function handleLogin() {
-    // 1. Отримуємо значення безпосередньо з полів вводу
-    const emailField = document.getElementById('login-email');
-    const passwordField = document.getElementById('login-password');
+    // ВХІД
+    async function handleLogin() {
+        const emailInput = document.getElementById('login-email');
+        const passwordInput = document.getElementById('login-password');
 
-    if (!emailField || !passwordField) {
-        alert("Помилка: Не знайдено текстові поля входу (перевірте id='login-email' та id='login-password')");
-        return;
+        if (!emailInput || !passwordInput) {
+            alert("Помилка: Не знайдено елементи входу!");
+            return;
+        }
+
+        const email = emailInput.value.trim();
+        const password = passwordInput.value.trim();
+
+        if (!email || !password) {
+            alert("Введіть Email та пароль!");
+            return;
+        }
+
+        try {
+            const userCredential = await auth.signInWithEmailAndPassword(email, password);
+            const user = userCredential.user;
+
+            let role = 'guest';
+            let username = email;
+
+            try {
+                const userDoc = await db.collection("users").doc(user.uid).get();
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    role = userData.role || 'guest';
+                    username = userData.fullName || email;
+                }
+            } catch (e) {
+                console.error("Помилка отримання профілю:", e);
+            }
+
+            // Очищення кешу перед входом нового акаунта
+            localStorage.removeItem('cars');
+            localStorage.removeItem('calc_saved_records');
+            localStorage.removeItem('selectedCar');
+            localStorage.removeItem('selected_car_id');
+
+            localStorage.setItem('currentUser', JSON.stringify({
+                uid: user.uid,
+                username: username,
+                email: email,
+                role: role
+            }));
+
+            if (role === 'admin' || role === 'programmer') {
+                alert(`Успішний вхід! Вітаємо, ${username} (Адміністратор)`);
+                window.location.href = 'admin.html';
+            } else {
+                alert(`Успішний вхід! Вітаємо, ${username}`);
+                window.location.href = 'home.html';
+            }
+        } catch (error) {
+            alert("Помилка входу: " + error.message);
+        }
     }
 
-    const emailValue = emailField.value.trim();
-    const passwordValue = passwordField.value.trim();
+    // ВХІД ЯК ГІСТЬ
+    async function loginAsGuest() {
+        if (typeof auth !== 'undefined' && auth.currentUser) {
+            await auth.signOut();
+        }
 
-    if (!emailValue || !passwordValue) {
-        alert("Будь ласка, введіть Email та пароль!");
-        return;
-    }
-
-    try {
-        // 2. Авторизація у Firebase за допомогою витягнутих значень
-        const userCredential = await auth.signInWithEmailAndPassword(emailValue, passwordValue);
-        const user = userCredential.user;
-
-        // 3. Очищення локального кешу, щоб авто та розрахунки не змішувалися між акаунтами
         localStorage.removeItem('cars');
         localStorage.removeItem('calc_saved_records');
         localStorage.removeItem('selectedCar');
         localStorage.removeItem('selected_car_id');
 
-        // 4. Зчитування ролі з Firestore
-        let role = 'user';
-        let username = emailValue;
-
-        try {
-            const userDoc = await db.collection("users").doc(user.uid).get();
-            if (userDoc.exists) {
-                const userData = userDoc.data();
-                role = userData.role || 'user';
-                username = userData.fullName || emailValue;
-            }
-        } catch (dbErr) {
-            console.error("Помилка отримання даних про профіль:", dbErr);
-        }
-
-        // 5. Збереження сесії
-        localStorage.setItem('currentUser', JSON.stringify({
-            uid: user.uid,
-            username: username,
-            email: emailValue,
-            role: role
-        }));
-
-        // 6. Перенаправлення
-        if (role === 'admin' || role === 'programmer') {
-            window.location.href = 'admin.html';
-        } else {
-            window.location.href = 'home.html';
-        }
-
-    } catch (error) {
-        alert("Помилка входу: " + error.message);
+        const user = { username: 'Гість', role: 'guest', uid: 'guest_local' };
+        localStorage.setItem('currentUser', JSON.stringify(user));
+        window.location.href = 'home.html';
     }
-}
-   // При вході як гість повністю очищаємо локальний кеш попередніх акаунтів
-async function loginAsGuest() {
-    if (typeof auth !== 'undefined' && auth.currentUser) {
-        await auth.signOut();
-    }
-    
-    // Очищаємо всі локальні тимчасові дані
-    localStorage.removeItem('cars');
-    localStorage.removeItem('calc_saved_records');
-    localStorage.removeItem('selectedCar');
-    localStorage.removeItem('selected_car_id');
-
-    const user = { username: 'Гість', role: 'guest', uid: 'guest_local' };
-    localStorage.setItem('currentUser', JSON.stringify(user));
-    window.location.href = 'home.html';
-}
-
-// У функції handleLogin() додайте очищення перед завантаженням нових даних користувача:
-async function handleLogin() {
-    // ... ваш код входу ...
-    try {
-        const userCredential = await auth.signInWithEmailAndPassword(email, password);
-        
-        // Очищаємо локальний кеш перед завантаженням персональних даних користувача з хмари
-        localStorage.removeItem('cars');
-        localStorage.removeItem('calc_saved_records');
-        
-        // ... далі ваш код перенаправлення на home.html ...
-    } catch(e) {
-        alert("Помилка входу: " + e.message);
-    }
-}
 </script>
-
 </body>
 </html>
