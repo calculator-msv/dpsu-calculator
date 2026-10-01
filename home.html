@@ -175,18 +175,12 @@
     </div>
 
     <script>
-        // Відображення імені поточного користувача
-        const userData = JSON.parse(localStorage.getItem('currentUser'));
-        if (userData && userData.username) {
-            document.getElementById('user-display').innerText = userData.username;
-        }
+       <!-- 1. Завантаження бібліотек Firebase (CDN) -->
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
-        // Функція виходу
-        function logout() {
-            localStorage.removeItem('currentUser');
-            window.location.href = 'index.html';
-        }
-    </script>
-
+<!-- 2. Ваша конфігурація -->
+<script src="firebase-config.js"></script>
 </body>
 </html>
