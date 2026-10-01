@@ -592,45 +592,94 @@
     }
 
     async function saveCalculationRecord() {
-        const rows = getCurrentRowsData();
-        if (rows.length === 0) return alert("Таблиця розрахунку порожня!");
+    const rows = getCurrentRowsData();
+    if (rows.length === 0) return alert("Таблиця розрахунку порожня!");
 
-        const carSelect = document.getElementById('carSelect');
-        const carName = carSelect.options[carSelect.selectedIndex]?.text || "ТЗ";
-        let title = prompt("Введіть назву розрахунку:");
-        if (!title) return;
+    const carSelect = document.getElementById('carSelect');
+    const carName = carSelect.options[carSelect.selectedIndex]?.text || "ТЗ";
+    let title = prompt("Введіть назву розрахунку:");
+    if (!title) return;
 
-        const recordData = {
-            id: Date.now(),
-            title: cleanEmoji(title),
-            carName: carName,
-            trailerActive: trailerActive,
-            gTrailler: document.getElementById('g_trailler').value,
-            rows: rows,
-            totalQ: document.getElementById('r_q').innerText,
-            createdAt: new Date().toLocaleString('uk-UA'),
-            date: new Date().toLocaleString('uk-UA')
-        };
+    const recordData = {
+        id: Date.now(),
+        title: cleanEmoji(title),
+        carName: carName,
+        trailerActive: trailerActive,
+        gTrailler: document.getElementById('g_trailler').value,
+        rows: rows,
+        totalQ: document.getElementById('r_q').innerText,
+        createdAt: new Date().toLocaleString('uk-UA')
+    };
 
-        // 1. Локальне збереження
-        let archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
-        archives.unshift(recordData);
-        localStorage.setItem('calc_saved_records', JSON.stringify(archives));
+    const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
 
-        // 2. Збереження у Firebase (якщо залогінений)
-        const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
-        if (user) {
-            try {
-                await db.collection('users').doc(user.uid).collection('calc_records').doc(String(recordData.id)).set(recordData);
-            } catch (err) {
-                console.error("Помилка збереження у хмару:", err);
-            }
+    // 1. Збереження у хмару Firestore (якщо залогінений)
+    if (user) {
+        try {
+            await db.collection('users').doc(user.uid).collection('calc_records').doc(String(recordData.id)).set(recordData);
+        } catch (err) {
+            console.error("Помилка збереження у хмару:", err);
         }
-
-        alert("Розрахунок успішно збережено!");
-        renderCalcArchives();
     }
 
+    // 2. Збереження в локальну пам'ять
+    let archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
+    archives.unshift(recordData);
+    localStorage.setItem('calc_saved_records', JSON.stringify(archives));
+
+    alert("Розрахунок успішно збережено!");
+    renderCalcArchives();
+}
+
+async function renderCalcArchives() {
+    const container = document.getElementById('calcArchiveList');
+    if (!container) return;
+    container.innerHTML = '';
+
+    let archives = [];
+    const user = (typeof auth !== 'undefined') ? auth.currentUser : null;
+
+    // Якщо користувач залогінений — завантажуємо ЙОГО власний архів з хмари
+    if (user && typeof db !== 'undefined') {
+        try {
+            const snapshot = await db.collection('users').doc(user.uid).collection('calc_records').get();
+            if (!snapshot.empty) {
+                snapshot.forEach(doc => archives.push(doc.data()));
+                localStorage.setItem('calc_saved_records', JSON.stringify(archives));
+            } else {
+                localStorage.setItem('calc_saved_records', JSON.stringify([]));
+            }
+        } catch (e) {
+            console.log("Помилка зчитування з хмари, берємо з локальної пам'яті");
+            archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
+        }
+    } else {
+        // Для гостя зчитуємо локальні розрахунки
+        archives = JSON.parse(localStorage.getItem('calc_saved_records')) || [];
+    }
+
+    if (archives.length === 0) {
+        container.innerHTML = `<li style="color: #aaa; font-size: 11px;">Немає збережених розрахунків</li>`;
+        return;
+    }
+
+    archives.forEach(item => {
+        const li = document.createElement('li');
+        li.className = 'calc-archive-item';
+        li.innerHTML = `
+            <div>
+                <strong>${cleanEmoji(item.title)}</strong>
+                <br><small style="color:#bdc3c7;">⏱️ ${item.createdAt || item.date} | ТЗ: ${item.carName} | Витрата: <b>${item.totalQ} л</b></small>
+            </div>
+            <div style="display:flex; gap:4px;">
+                <button class="btn btn-blue" style="padding:4px 8px; font-size:10px; margin:0;" onclick="loadCalcRecord(${item.id})">📂 Відновити</button>
+                <button class="btn btn-orange" style="padding:4px 8px; font-size:10px; margin:0;" onclick="editCalcRecord(${item.id})">✏️</button>
+                <button class="btn" style="padding:4px 8px; font-size:10px; margin:0; background:#e74c3c; color:white;" onclick="deleteCalcRecord(${item.id})">🗑️</button>
+            </div>
+        `;
+        container.appendChild(li);
+    });
+}
     async function renderCalcArchives() {
         const container = document.getElementById('calcArchiveList');
         if (!container) return;
